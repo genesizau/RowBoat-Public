@@ -5,6 +5,7 @@ const {
   MessageEmbed
 } = require("discord.js");
 const fs = require("fs");
+const createCaptcha = require('./captcha.js')
 const {
   badwords
 } = require("./data.json");
@@ -36,14 +37,55 @@ bot.on("ready", () => {
   console.log(`Logged in as ${bot.user.username}`);
 });
 
+bot.on('guildMemberAdd', async member => {
+  const captcha = await createCaptcha();
+  try {
+      const msg = await member.send('You have 60 seconds to solve the captcha', {
+          files: [{
+              attachment: `C:/Users/Smart-PC/Documents/GitHub/rowboat/captchas/${captcha}.png`,
+              name: `${captcha}.png`
+          }]
+      });
+      try {
+          const filter = m => {
+              if(m.author.bot) return;
+              if(m.author.id === member.id && m.content === captcha) return true;
+              else {
+                  m.channel.send('You entered the captcha incorrectly.');
+                  return false;
+              }
+          };
+          const response = await msg.channel.awaitMessages(filter, { max: 1, time: 600000, errors: ['time']});
+          if(response) {
+              await msg.channel.send('You have verified yourself!');
+              await member.roles.add(member.guild.roles.cache.find(x => x.name == "Verified"), "Reason");
+              await fs.unlinkSync(`${__dirname}/captchas/${captcha}.png`)
+          } 
+      }
+      catch(err) {
+          console.log(err);
+          await msg.channel.send('You did not solve the captcha correctly on time.');
+          await member.kick();
+          await fs.unlinkSync(`${__dirname}/captchas/${captcha}.png`)
+                  .catch(err => console.log(err));
+      }
+  }
+  catch(err) {
+      console.log(err);
+  }
+});
+
 //console chatter
 let y = process.openStdin()
 y.addListener("data", res => {
     let x = res.toString().trim().split(/ +/g)
-    bot.channels.cache.get("730102630570917970").send(x.join(" "));
+    bot.channels.cache.find(
+      (ch) => ch.name === "general").send(x.join(" "));
 });
 
 bot.on("message", async (message) => {
+  
+  if (!message.guild) return;
   if (!message.member.hasPermission("ADMINISTRATOR")) {
     let confirm = false;
     //NOW WE WILL USE FOR LOOP
@@ -65,7 +107,6 @@ bot.on("message", async (message) => {
       return message.channel.send(BadEmbed)
     }
   }
-  if (!message.guild) return;
   let prefix = db.get(`prefix_${message.guild.id}`);
   if (prefix === null) prefix = default_prefix;
   if (!message.content.startsWith(prefix)) return;
